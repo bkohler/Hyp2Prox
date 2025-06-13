@@ -44,8 +44,22 @@ class ProxmoxCluster:
     def __init__(self, host: str, user: str, password: str, verify_ssl: bool = False):
         self.api = ProxmoxAPI(host, user=user, password=password, verify_ssl=verify_ssl)
 
-    def create_vm(self, node: str, vmid: int, name: str, cores: int, memory: int) -> None:
-        self.api.nodes(node).qemu.post(vmid=vmid, name=name, cores=cores, memory=memory)
+    def create_vm(
+        self,
+        node: str,
+        vmid: int,
+        name: str,
+        cores: int,
+        memory: int,
+        ostype: str = "l26",
+    ) -> None:
+        self.api.nodes(node).qemu.post(
+            vmid=vmid,
+            name=name,
+            cores=cores,
+            memory=memory,
+            ostype=ostype,
+        )
 
     def import_disk(self, node: str, vmid: int, image_path: str, storage: str) -> None:
         subprocess.check_call([
@@ -55,6 +69,21 @@ class ProxmoxCluster:
     def set_virtio_disk(self, node: str, vmid: int, storage: str) -> None:
         self.api.nodes(node).qemu(vmid).config.post(
             virtio0=f"{storage}:vm-{vmid}-disk-0"
+        )
+
+    def set_network(self, node: str, vmid: int, bridge: str) -> None:
+        self.api.nodes(node).qemu(vmid).config.post(
+            net0=f"virtio,bridge={bridge}"
+        )
+
+    def mount_iso(self, node: str, vmid: int, iso_path: str) -> None:
+        self.api.nodes(node).qemu(vmid).config.post(
+            ide2=f"{iso_path},media=cdrom"
+        )
+
+    def set_boot_order(self, node: str, vmid: int) -> None:
+        self.api.nodes(node).qemu(vmid).config.post(
+            boot="order=virtio0"
         )
 
     def start_vm(self, node: str, vmid: int) -> None:
@@ -86,6 +115,9 @@ def main() -> None:
     parser.add_argument('--export-path', default='C:\\temp\\export')
     parser.add_argument('--storage', default='local-lvm')
     parser.add_argument('--qcow-path', default='/var/tmp/converted.qcow2')
+    parser.add_argument('--bridge', default='vmbr0')
+    parser.add_argument('--virtio-iso', default='local:iso/virtio-win.iso')
+    parser.add_argument('--windows', action='store_true', help='guest OS is Windows')
     args = parser.parse_args()
 
     hyperv = HyperVCluster(HyperVCredentials(args.hyperv_host, args.hyperv_user, args.hyperv_pass))
@@ -102,11 +134,23 @@ def main() -> None:
     convert_disk(vhdx_path, args.qcow_path)
 
     print('Creating VM on Proxmox...')
-    proxmox.create_vm(args.proxmox_node, args.vmid, args.vm_name, args.cores, args.memory)
+    ostype = 'win10' if args.windows else 'l26'
+    proxmox.create_vm(
+        args.proxmox_node,
+        args.vmid,
+        args.vm_name,
+        args.cores,
+        args.memory,
+        ostype=ostype,
+    )
 
     print('Importing disk to Proxmox storage...')
     proxmox.import_disk(args.proxmox_node, args.vmid, args.qcow_path, args.storage)
     proxmox.set_virtio_disk(args.proxmox_node, args.vmid, args.storage)
+    proxmox.set_network(args.proxmox_node, args.vmid, args.bridge)
+    proxmox.set_boot_order(args.proxmox_node, args.vmid)
+    if args.windows:
+        proxmox.mount_iso(args.proxmox_node, args.vmid, args.virtio_iso)
 
     print('Starting VM on Proxmox...')
     proxmox.start_vm(args.proxmox_node, args.vmid)

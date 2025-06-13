@@ -24,7 +24,9 @@ The `migrate_vm.py` script performs the following steps:
 3. Converts the exported VHDX to QCOW2 using `virt-v2v` (which injects virtio drivers).
 4. Creates a new VM on Proxmox via its API.
 5. Imports the converted disk and attaches it as a virtio disk.
-6. Starts the VM on Proxmox.
+6. Sets up a virtio network interface and boot order.
+7. Optionally mounts the `virtio-win` ISO for Windows guests.
+8. Starts the VM on Proxmox.
 
 Example invocation:
 
@@ -38,7 +40,8 @@ python migrate_vm.py \
   --proxmox-pass secret \
   --proxmox-node pve01 \
   --vm-name MyVM \
-  --vmid 100
+  --vmid 100 \
+  --windows
 ```
 
 Adjust the parameters to match your environment (storage, export paths, etc.).
